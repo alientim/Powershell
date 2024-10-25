@@ -11,19 +11,28 @@ function Get-DomainFromOUPath {
     return $domain
 }
 
-# Funktion zur OU-Auswahl
+# Funktion zur OU-Auswahl und Erstellung
 function Select-OU {
     $ous = Get-ADOrganizationalUnit -Filter *
     $ouNames = $ous | ForEach-Object { $_.DistinguishedName }
     
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = "Select OU"
-    $form.Size = New-Object System.Drawing.Size(400, 300)
+    $form.Text = "Select or Create OU"
+    $form.Size = New-Object System.Drawing.Size(400, 400)
     
     $listBox = New-Object System.Windows.Forms.ListBox
-    $listBox.Dock = "Fill"
+    $listBox.Dock = "Top"
     $listBox.Items.AddRange($ouNames)
     $form.Controls.Add($listBox)
+    
+    $label = New-Object System.Windows.Forms.Label
+    $label.Text = "Neue OU erstellen (im Format 'OU=Name,DC=domain,DC=com'):"
+    $label.Dock = "Top"
+    $form.Controls.Add($label)
+    
+    $textBox = New-Object System.Windows.Forms.TextBox
+    $textBox.Dock = "Top"
+    $form.Controls.Add($textBox)
     
     $okButton = New-Object System.Windows.Forms.Button
     $okButton.Text = "OK"
@@ -35,7 +44,12 @@ function Select-OU {
     $form.Controls.Add($okButton)
     
     if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        return $listBox.SelectedItem
+        $selectedOU = $listBox.SelectedItem
+        $newOU = $textBox.Text
+        if (![string]::IsNullOrEmpty($newOU)) {
+            return $newOU
+        }
+        return $selectedOU
     } else {
         return $null
     }
@@ -65,33 +79,35 @@ if ($openFileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     exit
 }
 
-# Standardpasswort per Fenster eingeben
+# Standardpasswort per Texteingabe
 $form = New-Object System.Windows.Forms.Form
-$form.Text = "Passwort Eingeben"
+$form.Text = "Standardpasswort eingeben"
 $form.Size = New-Object System.Drawing.Size(300, 150)
-$form.StartPosition = "CenterScreen"
+
+$passwordLabel = New-Object System.Windows.Forms.Label
+$passwordLabel.Text = "Bitte geben Sie das Standardpasswort für alle Benutzer ein:"
+$passwordLabel.Dock = "Top"
+$form.Controls.Add($passwordLabel)
 
 $passwordBox = New-Object System.Windows.Forms.TextBox
-$passwordBox.Location = New-Object System.Drawing.Point(10, 10)
-$passwordBox.Size = New-Object System.Drawing.Size(260, 20)
 $passwordBox.UseSystemPasswordChar = $true
+$passwordBox.Dock = "Top"
 $form.Controls.Add($passwordBox)
 
-$okButton = New-Object System.Windows.Forms.Button
-$okButton.Text = "OK"
-$okButton.Location = New-Object System.Drawing.Point(10, 50)
-$okButton.Size = New-Object System.Drawing.Size(75, 23)
-$okButton.Add_Click({
+$passwordButton = New-Object System.Windows.Forms.Button
+$passwordButton.Text = "OK"
+$passwordButton.Dock = "Bottom"
+$passwordButton.Add_Click({
     $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
     $form.Close()
 })
-$form.Controls.Add($okButton)
+$form.Controls.Add($passwordButton)
 
 if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     $standardPasswordText = $passwordBox.Text
     $standardPassword = (ConvertTo-SecureString $standardPasswordText -AsPlainText -Force)
 } else {
-    Write-Output "Es wurde kein Passwort eingegeben. Skript wird beendet."
+    Write-Output "Kein Passwort eingegeben. Skript wird beendet."
     exit
 }
 
@@ -107,7 +123,7 @@ if ($ouPath -eq $null) {
 Create-OU -ouPath $ouPath
 
 # Domain für die E-Mail-Adressen aus dem OU-Pfad generieren
-$emailDomain = Get-DomainFromOUPath -ouPath $ouPath
+$emailDomain = Get-DomainFromOUPath -ouPath
 
 # IGLDA ausführen und Gruppen bei Bedarf erstellen
 foreach ($entry in $agdplTable) {
@@ -117,7 +133,7 @@ foreach ($entry in $agdplTable) {
     $domainLocalGroups = $entry.DomainLocalGroups -split "," # DL-Gruppen aufteilen
 
     if ([string]::IsNullOrEmpty($vorname) -or [string]::IsNullOrEmpty($nachname) -or [string]::IsNullOrEmpty($globalGroup)) {
-        continue # Überspringt Einträge mit leeren notwendigen Feldern
+        continue # Ignoriert leere Felder
     }
     
     $account = $vorname.Substring(0,1) + $nachname
@@ -131,6 +147,8 @@ foreach ($entry in $agdplTable) {
     } else {
         Write-Output "Benutzer $vorname $nachname existiert bereits."
     }
+
+    
     
         # Globalgruppe erstellen, wenn nicht vorhanden
     $globalGroupObj = Get-ADGroup -Filter {Name -eq $globalGroup}
