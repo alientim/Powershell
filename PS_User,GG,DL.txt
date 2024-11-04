@@ -11,28 +11,19 @@ function Get-DomainFromOUPath {
     return $domain
 }
 
-# Funktion zur OU-Auswahl und Erstellung
+# Funktion zur OU-Auswahl
 function Select-OU {
     $ous = Get-ADOrganizationalUnit -Filter *
     $ouNames = $ous | ForEach-Object { $_.DistinguishedName }
     
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = "Select or Create OU"
-    $form.Size = New-Object System.Drawing.Size(400, 400)
+    $form.Text = "Select OU"
+    $form.Size = New-Object System.Drawing.Size(400, 300)
     
     $listBox = New-Object System.Windows.Forms.ListBox
-    $listBox.Dock = "Top"
+    $listBox.Dock = "Fill"
     $listBox.Items.AddRange($ouNames)
     $form.Controls.Add($listBox)
-    
-    $label = New-Object System.Windows.Forms.Label
-    $label.Text = "Neue OU erstellen (im Format 'OU=Name,DC=domain,DC=com'):"
-    $label.Dock = "Top"
-    $form.Controls.Add($label)
-    
-    $textBox = New-Object System.Windows.Forms.TextBox
-    $textBox.Dock = "Top"
-    $form.Controls.Add($textBox)
     
     $okButton = New-Object System.Windows.Forms.Button
     $okButton.Text = "OK"
@@ -44,25 +35,9 @@ function Select-OU {
     $form.Controls.Add($okButton)
     
     if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        $selectedOU = $listBox.SelectedItem
-        $newOU = $textBox.Text
-        if (![string]::IsNullOrEmpty($newOU)) {
-            return $newOU
-        }
-        return $selectedOU
+        return $listBox.SelectedItem
     } else {
         return $null
-    }
-}
-
-# Funktion zur Erstellung einer OU, falls nicht vorhanden
-function Create-OU {
-    param ([string]$ouPath)
-    if (-not (Get-ADOrganizationalUnit -Filter "DistinguishedName -eq '$ouPath'")) {
-        New-ADOrganizationalUnit -Name (New-Object DirectoryServices.ActiveDirectory.ActiveDirectoryPartition -ArgumentList $ouPath)
-        Write-Output "OU $ouPath wurde erstellt."
-    } else {
-        Write-Output "OU $ouPath existiert bereits."
     }
 }
 
@@ -79,51 +54,51 @@ if ($openFileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     exit
 }
 
-# Standardpasswort per Texteingabe
+# Standardpasswort per Texteingabe in einem Fenster
 $form = New-Object System.Windows.Forms.Form
-$form.Text = "Standardpasswort eingeben"
+$form.Text = "Passworteingabe"
 $form.Size = New-Object System.Drawing.Size(300, 150)
 
-$passwordLabel = New-Object System.Windows.Forms.Label
-$passwordLabel.Text = "Bitte geben Sie das Standardpasswort für alle Benutzer ein:"
-$passwordLabel.Dock = "Top"
-$form.Controls.Add($passwordLabel)
+$label = New-Object System.Windows.Forms.Label
+$label.Text = "Bitte geben Sie das Standardpasswort ein:"
+$label.Location = New-Object System.Drawing.Point(10, 20)
+$form.Controls.Add($label)
 
-$passwordBox = New-Object System.Windows.Forms.TextBox
-$passwordBox.UseSystemPasswordChar = $true
-$passwordBox.Dock = "Top"
-$form.Controls.Add($passwordBox)
+$textBox = New-Object System.Windows.Forms.TextBox
+$textBox.Location = New-Object System.Drawing.Point(10, 50)
+$textBox.Size = New-Object System.Drawing.Size(260, 20)
+$textBox.UseSystemPasswordChar = $true
+$form.Controls.Add($textBox)
 
-$passwordButton = New-Object System.Windows.Forms.Button
-$passwordButton.Text = "OK"
-$passwordButton.Dock = "Bottom"
-$passwordButton.Add_Click({
+$okButton = New-Object System.Windows.Forms.Button
+$okButton.Text = "OK"
+$okButton.Location = New-Object System.Drawing.Point(100, 80)
+$okButton.Add_Click({
     $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
     $form.Close()
 })
-$form.Controls.Add($passwordButton)
+$form.Controls.Add($okButton)
 
 if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-    $standardPasswordText = $passwordBox.Text
+    $standardPasswordText = $textBox.Text
     $standardPassword = (ConvertTo-SecureString $standardPasswordText -AsPlainText -Force)
 } else {
-    Write-Output "Kein Passwort eingegeben. Skript wird beendet."
+    Write-Output "Es wurde kein Passwort eingegeben. Skript wird beendet."
     exit
 }
 
 # CSV-Datei einlesen mit Semikolon als Delimiter
 $agdplTable = Import-Csv -Path $csvFilePath -Delimiter ';'
 
-# OU auswählen oder erstellen
+# OU auswählen
 $ouPath = Select-OU
 if ($ouPath -eq $null) {
     Write-Output "Es wurde keine OU ausgewählt. Skript wird beendet."
     exit
 }
-Create-OU -ouPath $ouPath
 
 # Domain für die E-Mail-Adressen aus dem OU-Pfad generieren
-$emailDomain = Get-DomainFromOUPath -ouPath
+$emailDomain = Get-DomainFromOUPath -ouPath $ouPath
 
 # IGLDA ausführen und Gruppen bei Bedarf erstellen
 foreach ($entry in $agdplTable) {
@@ -133,7 +108,7 @@ foreach ($entry in $agdplTable) {
     $domainLocalGroups = $entry.DomainLocalGroups -split "," # DL-Gruppen aufteilen
 
     if ([string]::IsNullOrEmpty($vorname) -or [string]::IsNullOrEmpty($nachname) -or [string]::IsNullOrEmpty($globalGroup)) {
-        continue # Ignoriert leere Felder
+        continue
     }
     
     $account = $vorname.Substring(0,1) + $nachname
@@ -148,15 +123,21 @@ foreach ($entry in $agdplTable) {
         Write-Output "Benutzer $vorname $nachname existiert bereits."
     }
 
-    
-    
-        # Globalgruppe erstellen, wenn nicht vorhanden
+    # Globalgruppe erstellen, wenn nicht vorhanden
     $globalGroupObj = Get-ADGroup -Filter {Name -eq $globalGroup}
     if (-not $globalGroupObj) {
         New-ADGroup -Name $globalGroup -GroupScope Global -Path $ouPath
         Write-Output "Globalgruppe $globalGroup wurde erstellt."
     } else {
         Write-Output "Globalgruppe $globalGroup existiert bereits."
+    }
+
+    # Konto zu Globalgruppe hinzufügen
+    if (-not (Get-ADGroupMember -Identity $globalGroup -Recursive | Where-Object { $_.SamAccountName -eq $account })) {
+        Add-ADGroupMember -Identity $globalGroup -Members $account
+        Write-Output "Benutzer $account wurde zur Globalgruppe $globalGroup hinzugefügt."
+    } else {
+        Write-Output "Benutzer $account ist bereits Mitglied der Globalgruppe $globalGroup."
     }
 
     # Domänenlokale Gruppen erstellen und verknüpfen
@@ -183,3 +164,4 @@ foreach ($entry in $agdplTable) {
 }
 
 Write-Output "Skript erfolgreich ausgeführt!"
+
