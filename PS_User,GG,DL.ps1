@@ -142,19 +142,20 @@ foreach ($entry in $agdplTable) {
         Write-Output "Benutzer $account ist bereits Mitglied der Globalgruppe $globalGroup."
     }
 
-    # Domänenlokale Gruppen erstellen und verknüpfen
-    foreach ($domainLocalGroup in $domainLocalGroups) {
-        $domainLocalGroup = $domainLocalGroup.Trim() # Leerzeichen entfernen
-        if ([string]::IsNullOrEmpty($domainLocalGroup)) {
-            continue # Ignoriert leere Felder
-        }
+   # Domänenlokale Gruppen erstellen und verknüpfen
+foreach ($domainLocalGroup in $domainLocalGroups) {
+    $domainLocalGroup = $domainLocalGroup.Trim() # Leerzeichen entfernen
+    if ([string]::IsNullOrEmpty($domainLocalGroup)) {
+        continue # Ignoriert leere Felder
+    }
+    try {
         if (-not (Get-ADGroup -Filter {Name -eq $domainLocalGroup})) {
             New-ADGroup -Name $domainLocalGroup -GroupScope DomainLocal -Path $ouPath
             Write-Output "Domänenlokale Gruppe $domainLocalGroup wurde erstellt."
         } else {
             Write-Output "Domänenlokale Gruppe $domainLocalGroup existiert bereits."
         }
-        
+
         # Globalgruppe zu Domänenlokaler Gruppe hinzufügen
         if (-not (Get-ADGroupMember -Identity $domainLocalGroup -Recursive | Where-Object { $_.SamAccountName -eq $globalGroup })) {
             Add-ADGroupMember -Identity $domainLocalGroup -Members $globalGroup
@@ -162,6 +163,8 @@ foreach ($entry in $agdplTable) {
         } else {
             Write-Output "Globalgruppe $globalGroup ist bereits Mitglied der Domänenlokalen Gruppe $domainLocalGroup."
         }
+    } catch {
+        Write-Output "Fehler beim Erstellen oder Verknüpfen der Domänenlokalen Gruppe $domainLocalGroup: $_"
     }
 }
 
