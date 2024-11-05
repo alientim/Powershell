@@ -1,8 +1,18 @@
+$runAsAdmin = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+$adminRole = [Security.Principal.WindowsBuiltInRole]::Administrator
+
+if (-not $runAsAdmin.IsInRole($adminRole)) {
+    # Relaunch the script as Administrator
+    $arguments = "$($myinvocation.MyCommand.Definition)"
+    Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File $arguments" -Verb RunAs
+    exit
+}
+
 # Import-Module und GUI-Komponenten laden
 Add-Type -AssemblyName System.Windows.Forms
 Import-Module ActiveDirectory
 
-# Funktion zum Abrufen der aktuellen Dom#ne
+# Funktion zum Abrufen der aktuellen Domäne
 function Get-DomainName {
     $domain = (Get-ADDomain).DNSRoot
     return $domain
@@ -93,7 +103,7 @@ $okButton.Add_Click({
 
         if (-not (Get-ADGroupMember -Identity $dlGroup -Recursive | Where-Object { $_.SamAccountName -eq $gg })) {
             Add-ADGroupMember -Identity $dlGroup -Members $gg
-            Write-Output "Globalgruppe $gg wurde zur Domänenlokalen Gruppe $dlGroup hinzugefÃ¼gt."
+            Write-Output "Globalgruppe $gg wurde zur Domänenlokalen Gruppe $dlGroup hinzugefügt."
         } else {
             Write-Output "Globalgruppe $gg ist bereits Mitglied der Domänenlokalen Gruppe $dlGroup."
         }
