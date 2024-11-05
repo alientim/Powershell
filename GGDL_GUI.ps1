@@ -14,13 +14,6 @@ function Get-Groups {
     return $groups | ForEach-Object { $_.Name }
 }
 $domain = Get-DomainName
-
-# Funktion zum Abrufen von Gruppen aus AD
-function Get-Groups {
-    $groups = Get-ADGroup -Filter *
-    return $groups | ForEach-Object { $_.Name }
-}
-
 $ggList = Get-Groups
 $dlList = Get-Groups
 
@@ -48,6 +41,12 @@ $ggListBox.Items.AddRange($ggList)
 $ggListBox.SelectionMode = "Single"
 $form.Controls.Add($ggListBox)
 
+$ggTextBox.Add_TextChanged({
+    $ggListBox.Items.Clear()
+    $filteredGGs = $ggList | Where-Object { $_ -like "*$($ggTextBox.Text)*" }
+    $ggListBox.Items.AddRange($filteredGGs)
+})
+
 # DL-Eingabe und Liste
 $dlLabel = New-Object System.Windows.Forms.Label
 $dlLabel.Text = "Domänenlokale Gruppen (DL):"
@@ -66,6 +65,12 @@ $dlListBox.Size = New-Object System.Drawing.Size(300, 200)
 $dlListBox.Items.AddRange($dlList)
 $dlListBox.SelectionMode = "MultiExtended"
 $form.Controls.Add($dlListBox)
+
+$dlTextBox.Add_TextChanged({
+    $dlListBox.Items.Clear()
+    $filteredDLs = $dlList | Where-Object { $_ -like "*$($dlTextBox.Text)*" }
+    $dlListBox.Items.AddRange($filteredDLs)
+})
 
 # OK-Button
 $okButton = New-Object System.Windows.Forms.Button
