@@ -1,3 +1,5 @@
+###Benötigt eine befüllte UGD_Blaupause.csv###
+
 # Import-Module und GUI-Komponenten laden
 Add-Type -AssemblyName System.Windows.Forms
 Import-Module ActiveDirectory
