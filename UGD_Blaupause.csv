@@ -1,0 +1,3 @@
+﻿Vorname;Nachname;GlobalGroup;DomainlocalGroup
+;;GG_pod08_Admins;Admins_RW,Admins_RX,Admins_RO,Admins_FA
+;;GG_pod08_Benutzer;Benutzer_RW,Benutzer_RX,Benutzer_RO,Benutzer_FA
