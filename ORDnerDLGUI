@@ -1,0 +1,124 @@
+# Import-Module und GUI-Komponenten laden
+Add-Type -AssemblyName System.Windows.Forms
+Import-Module ActiveDirectory
+
+# Funktion zur Verzeichnisauswahl
+function Select-Folder {
+    [System.Reflection.Assembly]::LoadWithPartialName("System.windows.forms") | Out-Null
+    $folderBrowser = New-Object System.Windows.Forms.FolderBrowserDialog
+    $folderBrowser.Description = "Wählen Sie den Hauptordner aus, in dem die Unterordner liegen"
+
+    if ($folderBrowser.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        return $folderBrowser.SelectedPath
+    } else {
+        Write-Host "Es wurde kein Verzeichnis ausgewählt. Skript wird beendet."
+        exit
+    }
+}
+# Funktion zur OU-Auswahl
+function Select-OU {
+    Add-Type -AssemblyName System.Windows.Forms
+    $ous = Get-ADOrganizationalUnit -Filter *
+    $ouNames = $ous | ForEach-Object { $_.DistinguishedName }
+
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = "OU auswählen"
+    $form.Size = New-Object System.Drawing.Size(400, 300)
+
+    $listBox = New-Object System.Windows.Forms.ListBox
+    $listBox.Dock = "Fill"
+    $listBox.Items.AddRange($ouNames)
+    $form.Controls.Add($listBox)
+
+    $okButton = New-Object System.Windows.Forms.Button
+    $okButton.Text = "OK"
+    $okButton.Dock = "Bottom"
+    $okButton.Height = 40
+    $okButton.BackColor = [System.Drawing.Color]::LightGreen
+    $okButton.Add_Click({
+        if ($listBox.SelectedItem) {
+            $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
+        } else {
+            [System.Windows.Forms.MessageBox]::Show("Bitte wählen Sie die OU aus für die DLs.")
+        }
+    })
+    $form.Controls.Add($okButton)
+
+    if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        return $listBox.SelectedItem
+    } else {
+        return $null
+    }
+}
+# Hauptordner auswählen
+$mainFolderPath = Select-Folder
+if ($mainFolderPath -eq $null) {
+    Write-Host "Es wurde kein Hauptordner ausgewählt. Skript wird beendet."
+    exit
+}
+
+# OU auswählen
+$ouPath = Select-OU
+if ($ouPath -eq $null) {
+    Write-Host "Es wurde keine OU ausgewählt. Skript wird beendet."
+    exit
+}
+# Berechtigungen definieren
+$permissions = @{
+    "RX" = [System.Security.AccessControl.FileSystemRights]::Modify
+    "RO" = [System.Security.AccessControl.FileSystemRights]::ReadAndExecute
+    "RW" = [System.Security.AccessControl.FileSystemRights]::ReadAndExecute -bor [System.Security.AccessControl.FileSystemRights]::Write
+    "FA" = [System.Security.AccessControl.FileSystemRights]::FullControl
+}
+
+# Liste für neu angelegte DLs
+$newDLs = @()
+
+# Unterordner im Hauptordner durchlaufen
+$subfolders = Get-ChildItem -Path $mainFolderPath -Directory
+foreach ($subfolder in $subfolders) {
+    $subfolderName = $subfolder.Name.Trim()
+    $subfolderNameClean = $subfolderName -replace ' ', '_'
+    
+    foreach ($permissionName in $permissions.Keys) {
+        $dlGroupName = "DL_${subfolderNameClean}_${permissionName}"
+        
+        # DL-Gruppe erstellen, wenn nicht vorhanden
+        $dlGroup = Get-ADGroup -Filter {Name -eq $dlGroupName}
+        if (-not $dlGroup) {
+            New-ADGroup -Name $dlGroupName -GroupScope DomainLocal -Path $ouPath
+            $newDLs += $dlGroupName  # Hinzufügen des DL-Namens zur Liste
+        }
+
+        # Berechtigungen auf Ordner setzen
+        $acl = Get-Acl -Path $subfolder.FullName
+        $permission = $permissions[$permissionName]
+        $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule ($dlGroupName, $permission, "ContainerInherit,ObjectInherit", "None", "Allow")
+        $acl.SetAccessRule($accessRule)
+        Set-Acl -Path $subfolder.FullName -AclObject $acl
+    }
+}
+
+# Fenster mit "Beenden"-Button und DL-Übersicht anzeigen
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "Skript beendet"
+$form.Size = New-Object System.Drawing.Size(400, 400)
+$form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
+
+$dlListBox = New-Object System.Windows.Forms.ListBox
+$dlListBox.Dock = "Fill"
+$dlListBox.Items.Add("Folgende DLs wurden erfolgreich angelegt und verrechtet:")
+$dlListBox.Items.AddRange($newDLs)
+$form.Controls.Add($dlListBox)
+
+$closeButton = New-Object System.Windows.Forms.Button
+$closeButton.Text = "Beenden"
+$closeButton.Dock = "Bottom"
+$closeButton.Height = 40
+$closeButton.BackColor = [System.Drawing.Color]::LightCoral
+$closeButton.Add_Click({
+    $form.Close()
+})
+$form.Controls.Add($closeButton)
+
+$form.ShowDialog()
