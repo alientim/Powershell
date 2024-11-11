@@ -1,5 +1,8 @@
 # PowerShell GUI Script für Auswahlbuttons: Create User, Create Groups, ADGDL
 
+# Version 1.0:
+# Created 2024 by Tim Eertmoed, Germany to work on Windows Server 2019/2022 as an user creating script.
+
 # Sicherstellen, dass das Skript als Administrator ausgeführt wird
 $myWindowsIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
 $myPrincipal = New-Object System.Security.Principal.WindowsPrincipal($myWindowsIdentity)
@@ -153,6 +156,7 @@ function Create-User {
         $outputTextBox.Location = New-Object System.Drawing.Point(10, 350)  # Position unterhalb des DataGridViews
         $outputTextBox.Size = New-Object System.Drawing.Size(954, 150)  # Größe der RichTextBox festgelegt
         $outputTextBox.ScrollBars = 'Vertical'
+        $outputTextBox.ReadOnly = $true
         $form.Controls.Add($outputTextBox)
 
         # OK-Button erstellen
@@ -243,35 +247,65 @@ function Create-User {
                             $outputTextBox.AppendText("Fehlerdetails: $_`r`n")
                         }
 
-                        # Gruppenzuordnung durchführen, auch wenn der Benutzer schon existiert
+                            # Gruppenzuordnung durchführen, auch wenn der Benutzer schon existiert
                         if ($globalGroup) {
                             # Gruppen-OU immer auf die Master-OU setzen
                             try {
                                 # Überprüfen, ob die Gruppe existiert
                                 $groupOU = $masterGroupOUComboBox.SelectedItem
-                                $group = Get-ADGroup -Filter { Name -eq $globalGroup }
-                                try {
-                                    # Gruppe erstellen, falls sie nicht existiert
-                                    $groupName = "GG_" + $globalGroup
-                                    New-ADGroup -Name $groupName `
-                                                -GroupScope Global `
-                                                -Path $groupOU `
-                                                -Description "Globale Gruppe für $groupName"
-                            
-                                    # Erfolgsnachricht
+                                $group = Get-ADGroup -Filter { Name -eq $globalGroup } -ErrorAction SilentlyContinue
+        
+                                # Wenn die Gruppe nicht existiert, wird sie erstellt
+                                if (-not $group) {
+                                    try {
+                                        $groupName = "GG_" + $globalGroup
+                                        # Erstelle die Gruppe
+                                        New-ADGroup -Name $groupName `
+                                                    -GroupScope Global `
+                                                    -Path $groupOU `
+                                                    -Description "Globale Gruppe für $groupName"
+                
+                                        # Erfolgsnachricht für Gruppenerstellung
+                                        $outputTextBox.SelectionColor = 'Green'
+                                        $outputTextBox.AppendText("Globale Gruppe '$groupName' wurde erfolgreich erstellt.`r`n")
+                                    }
+                                    catch {
+                                        # Fehler bei der Erstellung der Gruppe
+                                        $outputTextBox.SelectionColor = 'Red'
+                                        $outputTextBox.AppendText("Fehler bei der Erstellung der Gruppe '$groupName':`r`n")
+                                        $outputTextBox.AppendText("Fehlerdetails: $_`r`n")
+                                        return
+                                    }
+                                } else {
+                                    # Erfolgsnachricht, falls die Gruppe bereits existiert
                                     $outputTextBox.SelectionColor = 'Green'
-                                    $outputTextBox.AppendText("Globale Gruppe '$groupName' wurde erfolgreich erstellt.`r`n")
+                                    $outputTextBox.AppendText("Gruppe '$globalGroup' existiert bereits.`r`n")
                                 }
-                                catch {
+
+                                # Benutzer zur Gruppe hinzufügen
+                                if ($username) {
+                                    try {
+                                        Add-ADGroupMember -Identity $groupName -Members $username
+                
+                                        # Erfolgsnachricht für das Hinzufügen des Benutzers
+                                        $outputTextBox.SelectionColor = 'Green'
+                                        $outputTextBox.AppendText("Benutzer '$username' wurde erfolgreich zur Gruppe '$groupName' hinzugefügt.`r`n")
+                                    }
+                                    catch {
+                                        # Fehler bei der Hinzufügung des Benutzers
+                                        $outputTextBox.SelectionColor = 'Red'
+                                        $outputTextBox.AppendText("Fehler bei der Hinzufügung des Benutzers '$username' zur Gruppe '$groupName':`r`n")
+                                        $outputTextBox.AppendText("Fehlerdetails: $_`r`n")
+                                    }
+                                } else {
                                     $outputTextBox.SelectionColor = 'Red'
-                                    $outputTextBox.AppendText("Fehler bei der Erstellung der Gruppe '$groupName':`r`n")
-                                    $outputTextBox.AppendText("Fehlerdetails: $_`r`n")
+                                    $outputTextBox.AppendText("Benutzername '$username' ist nicht definiert.`r`n")
                                 }
                             }
                             catch {
-                                # Fehler bei der Gruppenzuordnung
+                                # Fehler bei der Gruppenzuordnung oder übergeordneten Fehler
                                 $outputTextBox.SelectionColor = 'Red'
-                                $outputTextBox.AppendText("Fehler bei der Gruppenzuordnung für Benutzer '$username':`r`n")
+                                $outputTextBox.AppendText("Fehler bei der Verarbeitung der Gruppe '$globalGroup':`r`n")
                                 $outputTextBox.AppendText("Fehlerdetails: $_`r`n")
                             }
                         }
@@ -301,7 +335,7 @@ function Create-User {
         }
 
         # Formular anzeigen
-        $form.ShowDialog()
+        $form.Show()
 }
 
 # Funktion, die beim Klick auf "Create Groups" ausgeführt wird
@@ -365,6 +399,7 @@ function Create-Groups {
         $outputTextBox.Location = New-Object System.Drawing.Point(10, 320)  # Position unterhalb des DataGridViews
         $outputTextBox.Size = New-Object System.Drawing.Size(564, 150)  # Größe der RichTextBox
         $outputTextBox.ScrollBars = 'Vertical'
+        $outputTextBox.ReadOnly = $true
         $form.Controls.Add($outputTextBox)
 
         # OK-Button für Gruppen erstellen
@@ -381,7 +416,7 @@ function Create-Groups {
 
                     if (-not $groupType -or -not $groupName -or -not $groupOU) {
                         $outputTextBox.SelectionColor = 'Red'
-                        $outputTextBox.AppendText("Fehler: Alle Felder (Typ, Gruppenname, OU) mÃ¼ssen ausgefÃ¼llt sein.`r`n")
+                        $outputTextBox.AppendText("Fehler: Alle Felder (Typ, Gruppenname, OU) müssen ausgefüllt sein.`r`n")
                         continue
                     }
 
@@ -402,7 +437,7 @@ function Create-Groups {
                                 New-ADGroup -Name $groupName `
                                             -GroupScope Global `
                                             -Path $groupOU `
-                                            -Description "Globale Gruppe fÃ¼r $groupName"
+                                            -Description "Globale Gruppe für $groupName"
                                 $outputTextBox.SelectionColor = 'Green'
                                 $outputTextBox.AppendText("Globale Gruppe '$groupName' wurde erfolgreich erstellt.`r`n")
                             } else {
@@ -416,7 +451,7 @@ function Create-Groups {
                                     New-ADGroup -Name $domainLocalGroupName `
                                                 -GroupScope DomainLocal `
                                                 -Path $groupOU `
-                                                -Description "DomainLocal Gruppe fÃ¼r $domainLocalGroupName"
+                                                -Description "DomainLocal Gruppe für $domainLocalGroupName"
                                     $outputTextBox.SelectionColor = 'Green'
                                     $outputTextBox.AppendText("DomainLocal Gruppe '$domainLocalGroupName' wurde erfolgreich erstellt.`r`n")
                                 } else {
@@ -433,7 +468,7 @@ function Create-Groups {
                                     New-ADGroup -Name $domainLocalGroupName `
                                                 -GroupScope DomainLocal `
                                                 -Path $groupOU `
-                                                -Description "DomainLocal Gruppe fÃ¼r $domainLocalGroupName"
+                                                -Description "DomainLocal Gruppe für $domainLocalGroupName"
                                     $outputTextBox.SelectionColor = 'Green'
                                     $outputTextBox.AppendText("DomainLocal Gruppe '$domainLocalGroupName' wurde erfolgreich erstellt.`r`n")
                                 } else {
@@ -465,7 +500,7 @@ function Create-Groups {
         $form.Controls.Add($exitButton)
 
         # Formular anzeigen
-        $form.ShowDialog()
+        $form.Show()
 }
 
 # Funktion, die beim Klick auf "ADGDL" ausgeführt wird
@@ -474,7 +509,7 @@ function ADGDL {
         Add-Type -AssemblyName System.Windows.Forms
         Import-Module ActiveDirectory
 
-        # Funktion zum Abrufen der aktuellen DomÃ¤ne
+        # Funktion zum Abrufen der aktuellen Domäne
         function Get-DomainName {
             $domain = (Get-ADDomain).DNSRoot
             return $domain
@@ -501,7 +536,7 @@ function ADGDL {
         # GUI zur Zuordnung von GG zu DL und Benutzern erstellen
         $form = New-Object System.Windows.Forms.Form
         $form.Text = "GG zu DL Zuordnung und Benutzer"
-        $form.Size = New-Object System.Drawing.Size(805, 435)  # Fenstergröße anpassen
+        $form.Size = New-Object System.Drawing.Size(805, 505)  # Fenstergröße anpassen
 
         # Benutzer-Eingabe und Liste (ganz oben)
         $userLabel = New-Object System.Windows.Forms.Label
@@ -555,7 +590,7 @@ function ADGDL {
 
         # DL-Eingabe und Liste (ganz unten)
         $dlLabel = New-Object System.Windows.Forms.Label
-        $dlLabel.Text = "DomÃ¤nenlokale Gruppen (DL):"
+        $dlLabel.Text = "Domänenlokale Gruppen (DL):"
         $dlLabel.Location = New-Object System.Drawing.Point(530, 10)
         $dlLabel.Size = New-Object System.Drawing.Size(250, 20)
         $form.Controls.Add($dlLabel)
@@ -578,10 +613,12 @@ function ADGDL {
             $dlListBox.Items.AddRange($filteredDLs)
         })
 
-        # RichTextBox für Debug-Informationen hinzufÃ¼gen
+        # RichTextBox für Debug-Informationen hinzufügen
         $debugTextBox = New-Object System.Windows.Forms.RichTextBox
+        $debugTextBox.Multiline = $true
         $debugTextBox.Location = New-Object System.Drawing.Point(10, 265)
-        $debugTextBox.Size = New-Object System.Drawing.Size(770, 80)
+        $debugTextBox.Size = New-Object System.Drawing.Size(770, 150)
+        $debugTextBox.ScrollBars = 'Vertical'
         $debugTextBox.ReadOnly = $true
         $form.Controls.Add($debugTextBox)
 
@@ -601,7 +638,7 @@ function ADGDL {
         # OK-Button
         $okButton = New-Object System.Windows.Forms.Button
         $okButton.Text = "OK"
-        $okButton.Location = New-Object System.Drawing.Point(10, 355)
+        $okButton.Location = New-Object System.Drawing.Point(10, 425)
         $okButton.Size = New-Object System.Drawing.Size(380, 30)
         $okButton.Add_Click({
             $gg = $ggListBox.SelectedItem
@@ -612,7 +649,7 @@ function ADGDL {
             foreach ($user in $users) {
                 if (-not (Get-ADGroupMember -Identity $gg -Recursive | Where-Object { $_.SamAccountName -eq $user })) {
                     Add-ADGroupMember -Identity $gg -Members $user
-                    Add-DebugMessage "Benutzer $user wurde der Globalgruppe $gg hinzugefÃ¼gt." "Green"
+                    Add-DebugMessage "Benutzer $user wurde der Globalgruppe $gg hinzugefügt." "Green"
                 } else {
                     Add-DebugMessage "Benutzer $user ist bereits Mitglied der Globalgruppe $gg." "Orange"
                 }
@@ -625,7 +662,7 @@ function ADGDL {
                     if ($groupType -eq 'Global') {
                         if (-not (Get-ADGroupMember -Identity $dlGroup -Recursive | Where-Object { $_.SamAccountName -eq $gg })) {
                             Add-ADGroupMember -Identity $dlGroup -Members $gg
-                            Add-DebugMessage "Globalgruppe $gg wurde zur Globalgruppe $dlGroup hinzugefÃ¼gt." "Green"
+                            Add-DebugMessage "Globalgruppe $gg wurde zur Globalgruppe $dlGroup hinzugefügt." "Green"
                         } else {
                             Add-DebugMessage "Globalgruppe $gg ist bereits Mitglied der Globalgruppe $dlGroup." "Orange"
                         }
@@ -640,9 +677,9 @@ function ADGDL {
                     if ($groupType -eq 'DomainLocal') {
                         if (-not (Get-ADGroupMember -Identity $dlGroup -Recursive | Where-Object { $_.SamAccountName -eq $gg })) {
                             Add-ADGroupMember -Identity $dlGroup -Members $gg
-                            Add-DebugMessage "Globalgruppe $gg wurde zur DomÃ¤nenlokalen Gruppe $dlGroup hinzugefÃ¼gt." "Green"
+                            Add-DebugMessage "Globalgruppe $gg wurde zur Domänenlokalen Gruppe $dlGroup hinzugefügt." "Green"
                         } else {
-                            Add-DebugMessage "Globalgruppe $gg ist bereits Mitglied der DomÃ¤nenlokalen Gruppe $dlGroup." "Orange"
+                            Add-DebugMessage "Globalgruppe $gg ist bereits Mitglied der Domänenlokalen Gruppe $dlGroup." "Orange"
                         }
                     }
                 }
@@ -659,14 +696,14 @@ function ADGDL {
         # Beenden-Button
         $exitButton = New-Object System.Windows.Forms.Button
         $exitButton.Text = "Beenden"
-        $exitButton.Location = New-Object System.Drawing.Point(400, 355)
+        $exitButton.Location = New-Object System.Drawing.Point(400, 425)
         $exitButton.Size = New-Object System.Drawing.Size(380, 30)
         $exitButton.Add_Click({
             $form.Close()
         })
         $form.Controls.Add($exitButton)
 
-        $form.ShowDialog()
+        $form.Show()
 }
 
 # Erstellen des Formulars
