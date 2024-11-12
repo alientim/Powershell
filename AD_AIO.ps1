@@ -219,46 +219,62 @@ function Create-User {
                     try {
                         # Versuchen, den Benutzer abzurufen (auch wenn er bereits existiert)
                         $user = Get-ADUser -Filter { SamAccountName -eq $username }
-                        if (-not $user) {
-                            # Benutzer erstellen, falls er nicht existiert
-                            try {
-                                New-ADUser -Name "$firstName $lastName" `
-                                           -GivenName "$firstName" `
-                                           -Surname "$lastName" `
-                                           -SamAccountName "$username" `
-                                           -UserPrincipalName "$email" `
-                                           -AccountPassword (ConvertTo-SecureString $password -AsPlainText -Force) `
-                                           -Enabled $true `
-                                           -Path "$ou"
-                                   
-                                $outputTextBox.SelectionColor = 'Green'
-                                $outputTextBox.AppendText("Benutzer $username wurde erfolgreich erstellt.`r`n")
-                            }
-                            catch {
-                                $outputTextBox.SelectionColor = 'Red'
-                                $outputTextBox.AppendText("Fehler bei der Erstellung des Benutzers '$firstName $lastName':`r`n")
-                                $outputTextBox.AppendText("Fehlerdetails: $_`r`n")
-                            }
-                        }
-                        else {
-                            # Erfolgsnachricht für vorhandenen Benutzer
-                            $outputTextBox.SelectionColor = 'RED'
-                            $outputTextBox.AppendText("Benutzer $username existiert bereits.`r`n")
-                            $outputTextBox.AppendText("Fehlerdetails: $_`r`n")
-                        }
+						# Versuchen, den Benutzer abzurufen (auch wenn er bereits existiert)
+						$user = Get-ADUser -Filter { SamAccountName -eq $username }
 
+						if (-not $user) {
+							# Benutzer erstellen, falls er nicht existiert
+							try {
+								# Erstelle die Parameter für New-ADUser
+								$createUserParams = @{
+									Name              = "$firstName $lastName"
+									GivenName         = "$firstName"
+									Surname           = "$lastName"
+									SamAccountName    = "$username"
+									UserPrincipalName = "$email"
+									AccountPassword   = (ConvertTo-SecureString $password -AsPlainText -Force)
+									Enabled           = $true
+									Path              = "$ou"
+								}
+
+								# Überprüfen, ob der Jobtitel gesetzt wurde und hinzufügen
+								if ($title) {
+									$createUserParams["Title"] = $title
+								}
+
+								# Benutzer erstellen
+								New-ADUser @createUserParams
+
+								# Erfolgsnachricht
+								$outputTextBox.SelectionColor = 'Green'
+								$outputTextBox.AppendText("Benutzer $username wurde erfolgreich erstellt.`r`n")
+							}
+							catch {
+								# Fehler bei der Benutzererstellung
+								$outputTextBox.SelectionColor = 'Red'
+								$outputTextBox.AppendText("Fehler bei der Erstellung des Benutzers '$firstName $lastName':`r`n")
+								$outputTextBox.AppendText("Fehlerdetails: $_`r`n")
+                                continue
+							}
+						}
+						else {
+							# Benutzer existiert bereits
+							$outputTextBox.SelectionColor = 'Orange'
+							$outputTextBox.AppendText("Benutzer $username existiert bereits.`r`n")
+						}
                             # Gruppenzuordnung durchführen, auch wenn der Benutzer schon existiert
                         if ($globalGroup) {
                             # Gruppen-OU immer auf die Master-OU setzen
                             try {
-                                # Überprüfen, ob die Gruppe existiert
+                                # Der Name der Gruppe mit dem Präfix GG_ erstellen
+                                $groupName = "GG_" + $globalGroup
+
+                                # Überprüfen, ob die Gruppe bereits existiert
+                                $group = Get-ADGroup -Filter { Name -eq $groupName } -ErrorAction SilentlyContinue
                                 $groupOU = $masterGroupOUComboBox.SelectedItem
-                                $group = Get-ADGroup -Filter { Name -eq $globalGroup } -ErrorAction SilentlyContinue
-        
                                 # Wenn die Gruppe nicht existiert, wird sie erstellt
                                 if (-not $group) {
                                     try {
-                                        $groupName = "GG_" + $globalGroup
                                         # Erstelle die Gruppe
                                         New-ADGroup -Name $groupName `
                                                     -GroupScope Global `
@@ -274,19 +290,20 @@ function Create-User {
                                         $outputTextBox.SelectionColor = 'Red'
                                         $outputTextBox.AppendText("Fehler bei der Erstellung der Gruppe '$groupName':`r`n")
                                         $outputTextBox.AppendText("Fehlerdetails: $_`r`n")
-                                        return
+                                        continue
                                     }
-                                } else {
+                                }
+                                else {
                                     # Erfolgsnachricht, falls die Gruppe bereits existiert
-                                    $outputTextBox.SelectionColor = 'Green'
-                                    $outputTextBox.AppendText("Gruppe '$globalGroup' existiert bereits.`r`n")
+                                    $outputTextBox.SelectionColor = 'Orange'
+                                    $outputTextBox.AppendText("Gruppe '$groupName' existiert bereits.`r`n")
                                 }
 
-                                # Benutzer zur Gruppe hinzufügen
+                                # Benutzer zur Gruppe hinzufügen (nur wenn der Benutzername definiert ist)
                                 if ($username) {
                                     try {
                                         Add-ADGroupMember -Identity $groupName -Members $username
-                
+                                
                                         # Erfolgsnachricht für das Hinzufügen des Benutzers
                                         $outputTextBox.SelectionColor = 'Green'
                                         $outputTextBox.AppendText("Benutzer '$username' wurde erfolgreich zur Gruppe '$groupName' hinzugefügt.`r`n")
@@ -296,6 +313,7 @@ function Create-User {
                                         $outputTextBox.SelectionColor = 'Red'
                                         $outputTextBox.AppendText("Fehler bei der Hinzufügung des Benutzers '$username' zur Gruppe '$groupName':`r`n")
                                         $outputTextBox.AppendText("Fehlerdetails: $_`r`n")
+                                        continue
                                     }
                                 } else {
                                     $outputTextBox.SelectionColor = 'Red'
@@ -307,6 +325,7 @@ function Create-User {
                                 $outputTextBox.SelectionColor = 'Red'
                                 $outputTextBox.AppendText("Fehler bei der Verarbeitung der Gruppe '$globalGroup':`r`n")
                                 $outputTextBox.AppendText("Fehlerdetails: $_`r`n")
+                                continue
                             }
                         }
                     }
@@ -315,6 +334,7 @@ function Create-User {
                         $outputTextBox.SelectionColor = 'Red'
                         $outputTextBox.AppendText("Fehler bei der Erstellung des Benutzers '$firstName $lastName':`r`n")
                         $outputTextBox.AppendText("Fehlerdetails: $_`r`n")
+                        continue
                     }
                 }
             }
@@ -483,6 +503,7 @@ function Create-Groups {
                         # Fehler bei der Gruppen-Erstellung
                         $outputTextBox.SelectionColor = 'Red'
                         $outputTextBox.AppendText("Fehler bei der Erstellung der Gruppe '$groupName': $_.Exception.Message`r`n")
+                        continue
                     }
                 }
             }
