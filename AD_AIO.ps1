@@ -318,6 +318,7 @@ function Create-User {
                     }
                 }
             }
+            [System.Windows.Forms.MessageBox]::Show("Vorgang abgeschlossen.")
         })
 
         # Event-Handler für den Beenden-Button hinzufügen
@@ -335,7 +336,7 @@ function Create-User {
         }
 
         # Formular anzeigen
-        $form.Show()
+        $form.ShowDialog()
 }
 
 # Funktion, die beim Klick auf "Create Groups" ausgeführt wird
@@ -441,12 +442,13 @@ function Create-Groups {
                                 $outputTextBox.SelectionColor = 'Green'
                                 $outputTextBox.AppendText("Globale Gruppe '$groupName' wurde erfolgreich erstellt.`r`n")
                             } else {
-                                $outputTextBox.SelectionColor = 'Green'
+                                $outputTextBox.SelectionColor = 'Orange'
                                 $outputTextBox.AppendText("Globale Gruppe '$groupName' existiert bereits.`r`n")
                             }
                         } elseif ($groupType -eq "DL_OS") {
                             # DomainLocal Gruppen ohne Suffix erstellen
                                 $domainLocalGroupName = "$groupName"
+                                $group = Get-ADGroup -Filter { Name -eq $domainLocalGroupName }
                                 if (-not $group) {
                                     New-ADGroup -Name $domainLocalGroupName `
                                                 -GroupScope DomainLocal `
@@ -455,7 +457,7 @@ function Create-Groups {
                                     $outputTextBox.SelectionColor = 'Green'
                                     $outputTextBox.AppendText("DomainLocal Gruppe '$domainLocalGroupName' wurde erfolgreich erstellt.`r`n")
                                 } else {
-                                    $outputTextBox.SelectionColor = 'Green'
+                                    $outputTextBox.SelectionColor = 'Orange'
                                     $outputTextBox.AppendText("DomainLocal Gruppe '$domainLocalGroupName' existiert bereits.`r`n")
                                 }
                         } elseif ($groupType -eq "DL") {
@@ -472,7 +474,7 @@ function Create-Groups {
                                     $outputTextBox.SelectionColor = 'Green'
                                     $outputTextBox.AppendText("DomainLocal Gruppe '$domainLocalGroupName' wurde erfolgreich erstellt.`r`n")
                                 } else {
-                                    $outputTextBox.SelectionColor = 'Green'
+                                    $outputTextBox.SelectionColor = 'Orange'
                                     $outputTextBox.AppendText("DomainLocal Gruppe '$domainLocalGroupName' existiert bereits.`r`n")
                                 }
                             }
@@ -500,7 +502,7 @@ function Create-Groups {
         $form.Controls.Add($exitButton)
 
         # Formular anzeigen
-        $form.Show()
+        $form.ShowDialog()
 }
 
 # Funktion, die beim Klick auf "ADGDL" ausgeführt wird
@@ -703,13 +705,348 @@ function ADGDL {
         })
         $form.Controls.Add($exitButton)
 
-        $form.Show()
+        $form.ShowDialog()
 }
+
+# Funktion, die beim Klick auf "SMB-Rechte" ausgeführt wird
+function SMB-RIGHTS {
+    Write-Host "Führe SMB Rechte aus..."
+        Add-Type -AssemblyName System.Windows.Forms
+        Import-Module ActiveDirectory
+
+        # Hauptform erstellen
+        $form = New-Object System.Windows.Forms.Form
+        $form.Text = "Verzeichnis- und OU-Auswahl"
+        $form.Size = New-Object System.Drawing.Size(648, 510)
+
+        # RichTextBox für Debug-Informationen hinzufügen
+        $debugTextBox = New-Object System.Windows.Forms.RichTextBox
+        $debugTextBox.Multiline = $true
+        $debugTextBox.Location = New-Object System.Drawing.Point(10, 280)
+        $debugTextBox.Size = New-Object System.Drawing.Size(610, 150)
+        $debugTextBox.ScrollBars = 'Vertical'
+        $debugTextBox.ReadOnly = $true
+        $form.Controls.Add($debugTextBox)
+
+        # Liste für neu angelegte DLs
+        $newDLs = @()
+
+        # TreeView für die Ordnerstruktur (links)
+        $folderTreeView = New-Object System.Windows.Forms.TreeView
+        $folderTreeView.Location = New-Object System.Drawing.Point(10, 10)
+        $folderTreeView.Size = New-Object System.Drawing.Size(300, 200)
+
+        # Setze die folgenden Eigenschaften für den schreibgeschützten Zustand
+        $folderTreeView.LabelEdit = $false  # Verhindert das Bearbeiten von Knoten
+        $folderTreeView.AllowDrop = $false  # Verhindert Drag & Drop
+        $folderTreeView.HideSelection = $true  # Deaktiviert die Auswahlanzeige
+        $folderTreeView.FullRowSelect = $false  # Verhindert die vollständige Zeilenmarkierung
+        $folderTreeView.SelectedNode = $null  # Setzt die Auswahl zurück
+        $form.Controls.Add($folderTreeView)
+
+        # TextBox für den Hauptordner
+        $folderTextBox = New-Object System.Windows.Forms.TextBox
+        $folderTextBox.Location = New-Object System.Drawing.Point(10, 215)
+        $folderTextBox.Size = New-Object System.Drawing.Size(300, 30)
+        $folderTextBox.ReadOnly = $true
+        $form.Controls.Add($folderTextBox)
+
+        # Button für Ordnerauswahl
+        $folderButton = New-Object System.Windows.Forms.Button
+        $folderButton.Text = "Hauptordner auswählen"
+        $folderButton.Location = New-Object System.Drawing.Point(10, 240)
+        $folderButton.Size = New-Object System.Drawing.Size(300, 30)
+        $form.Controls.Add($folderButton)
+
+        # Ordnerauswahl-Funktion mit FolderBrowserDialog
+        $folderButton.Add_Click({
+            $folderBrowser = New-Object System.Windows.Forms.FolderBrowserDialog
+            $folderBrowser.Description = "Wählen Sie den Hauptordner aus, in dem die Unterordner liegen"
+
+            if ($folderBrowser.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                # Zeige den ausgewählten Ordner in der TextBox
+                $folderTextBox.Text = $folderBrowser.SelectedPath
+                $debugTextBox.AppendText("Hauptordner ausgewählt: $($folderTextBox.Text)" + [Environment]::NewLine)
+
+                # Leere die TreeView und lade den Ordnerbaum
+                $folderTreeView.Nodes.Clear()
+
+                # Füge die Wurzel des Ordners als Node hinzu
+                $rootNode = New-Object System.Windows.Forms.TreeNode($folderBrowser.SelectedPath)
+                $rootNode.Tag = $folderBrowser.SelectedPath  # Pfad im Tag speichern
+                $folderTreeView.Nodes.Add($rootNode)
+
+                # Lade alle Unterordner des ausgewählten Ordners bis zur 2. Ebene (z.B. max. 2 Ebenen)
+                Load-Subfolders $folderBrowser.SelectedPath $rootNode 2  # Maximal 2 Ebenen laden
+
+                # Expandiere den Root-Node
+                $rootNode.Expand()
+            }
+        })
+
+        # Funktion zum Laden der Unterordner (max. 2 Ebenen)
+        function Load-Subfolders {
+            param (
+                [string]$parentFolder,
+                [System.Windows.Forms.TreeNode]$parentNode,
+                [int]$maxDepth,
+                [int]$currentDepth = 0
+            )
+
+            # Wenn die maximale Tiefe erreicht ist, breche ab
+            if ($currentDepth -ge $maxDepth) {
+                return
+            }
+
+            try {
+                # Überprüfen, ob der Ordner existiert
+                if (Test-Path $parentFolder) {
+                    # Hole alle Unterordner des aktuellen Ordners
+                    $subfolders = Get-ChildItem -Path $parentFolder -Directory -ErrorAction SilentlyContinue
+
+                    # Füge alle Unterordner als Knoten hinzu
+                    foreach ($subfolder in $subfolders) {
+                        # Erstelle den Knoten für den Unterordner
+                        $node = New-Object System.Windows.Forms.TreeNode($subfolder.Name)
+                        $node.Tag = $subfolder.FullName  # Pfad des Unterordners im Tag speichern
+                        $parentNode.Nodes.Add($node)
+
+                        # Lade Unterordner rekursiv für diesen Knoten (mit neuer Tiefe)
+                        Load-Subfolders $subfolder.FullName $node $maxDepth ($currentDepth + 1)
+                    }
+                } else {
+                    $debugTextBox.AppendText("Pfad nicht gefunden: $parentFolder" + [Environment]::NewLine)
+                }
+            } catch {
+                $debugTextBox.AppendText("Fehler beim Laden der Ordnerstruktur: $_" + [Environment]::NewLine)
+            }
+        }
+
+        # Abschnitt für OU Auswahl
+
+        # ListBox für OUs
+        $ouListBox = New-Object System.Windows.Forms.ListBox
+        $ouListBox.Location = New-Object System.Drawing.Point(320, 10)
+        $ouListBox.Size = New-Object System.Drawing.Size(300, 205)
+        $ouListBox.SelectionMode = [System.Windows.Forms.SelectionMode]::MultiExtended
+        $form.Controls.Add($ouListBox)
+
+        # TextBox für die ausgewählte OU
+        $ouTextBox = New-Object System.Windows.Forms.TextBox
+        $ouTextBox.Location = New-Object System.Drawing.Point(320, 215)
+        $ouTextBox.Size = New-Object System.Drawing.Size(300, 30)
+        $ouTextBox.ReadOnly = $true
+        $form.Controls.Add($ouTextBox)
+
+        # Button für OU-Auswahl
+        $ouButton = New-Object System.Windows.Forms.Button
+        $ouButton.Text = "OU auswählen"
+        $ouButton.Location = New-Object System.Drawing.Point(320, 240)
+        $ouButton.Size = New-Object System.Drawing.Size(300, 30)
+        $form.Controls.Add($ouButton)
+
+        # Event für den Button: Wenn der Button geklickt wird, öffnet sich das Fenster zur OU-Auswahl
+        $ouButton.Add_Click({
+            # Funktion zur OU-Auswahl
+            function Select-OU {
+                Add-Type -AssemblyName System.Windows.Forms
+                $ous = Get-ADOrganizationalUnit -Filter *
+                $ouNames = $ous | ForEach-Object { $_.DistinguishedName }
+
+                $ouForm = New-Object System.Windows.Forms.Form
+                $ouForm.Text = "OU auswählen"
+                $ouForm.Size = New-Object System.Drawing.Size(400, 300)
+
+                $listBox = New-Object System.Windows.Forms.ListBox
+                $listBox.Dock = "Fill"
+                $listBox.Items.AddRange($ouNames)
+                $ouForm.Controls.Add($listBox)
+
+                $okButton = New-Object System.Windows.Forms.Button
+                $okButton.Size = New-Object System.Drawing.Size(300, 30)
+                $okButton.Text = "OK"
+                $okButton.Dock = "Bottom"
+                $okButton.Add_Click({
+                    if ($listBox.SelectedItem) {
+                        $ouForm.DialogResult = [System.Windows.Forms.DialogResult]::OK
+                    } else {
+                        [System.Windows.Forms.MessageBox]::Show("Bitte wählen Sie eine OU aus.")
+                    }
+                })
+                $ouForm.Controls.Add($okButton)
+
+                # Zeige das Auswahlfenster und gebe die ausgewählte OU zurück
+                if ($ouForm.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                    return $listBox.SelectedItem
+                } else {
+                    return $null
+                }
+            }
+
+            # Rufe die Select-OU Funktion auf und speichere die gewählte OU in der TextBox
+            $selectedOU = Select-OU
+            if ($selectedOU) {
+                $ouTextBox.Text = $selectedOU  # Setze die ausgewählte OU in die TextBox
+                $debugTextBox.AppendText("Ausgewählte OU: $selectedOU" + [Environment]::NewLine)
+            }
+        })
+
+        # Funktion zum Laden der OUs in die ListBox
+        function Load-OUs {
+            try {
+                $ous = Get-ADOrganizationalUnit -Filter * | Select-Object -ExpandProperty DistinguishedName
+                $ouListBox.Items.Clear()
+                $ouListBox.Items.AddRange($ous)
+            } catch {
+                $debugTextBox.AppendText("Fehler beim Laden der OUs: $_" + [Environment]::NewLine)
+            }
+        }
+
+        Load-OUs
+
+        # Event für ListBox: Wenn eine OU ausgewählt wird
+        $ouListBox.Add_SelectedIndexChanged({
+            if ($ouListBox.SelectedItem) {
+                $ouTextBox.Text = $ouListBox.SelectedItem
+            }
+        })
+
+        # Schließen Button
+        $closeButton = New-Object System.Windows.Forms.Button
+        $closeButton.Text = "Beenden"
+        $closeButton.Location = New-Object System.Drawing.Point(320, 435)  # Direkt unterhalb der TextBox
+        $closeButton.Size = New-Object System.Drawing.Size(300, 30)
+        $closeButton.Add_Click({
+            $form.Close()
+        })
+        $form.Controls.Add($closeButton)
+
+        # Starten Button (sichtbar und korrekt positioniert)
+        $startButton = New-Object System.Windows.Forms.Button
+        $startButton.Text = "Starten"
+        $startButton.Location = New-Object System.Drawing.Point(10, 435)  # Direkt unterhalb des TextBox
+        $startButton.Size = New-Object System.Drawing.Size(300, 30)
+        $startButton.Add_Click({
+            $mainFolderPath = $folderTextBox.Text
+            $ouPath = $ouTextBox.Text
+    
+            if (-not $mainFolderPath) {
+                # Fehlernachricht (schwarz)
+                Add-DebugMessage -message "Bitte wählen Sie einen gültigen Ordner aus." -isPositive $false
+                return
+            }
+
+            if (-not $ouPath) {
+                # Fehlernachricht (schwarz)
+                Add-DebugMessage -message "Bitte wählen Sie eine gültige OU aus." -isPositive $false
+                return
+            }
+
+            # Berechtigungen definieren
+            $permissions = @{
+                "RO" = [System.Security.AccessControl.FileSystemRights]::Read
+                "RX" = [System.Security.AccessControl.FileSystemRights]::ReadAndExecute
+                "RW" = [System.Security.AccessControl.FileSystemRights]::Modify
+                "FA" = [System.Security.AccessControl.FileSystemRights]::FullControl
+            }
+
+            # Liste für neu angelegte DLs und Rechte
+            $newDLs = @()
+            $newRights = @()
+
+            # Unterordner im Hauptordner durchlaufen
+            $subfolders = Get-ChildItem -Path $mainFolderPath -Directory
+            foreach ($subfolder in $subfolders) {
+                $subfolderName = $subfolder.Name.Trim()
+                $subfolderNameClean = $subfolderName -replace ' ', '_'
+        
+                foreach ($permissionName in $permissions.Keys) {
+                    $dlGroupName = "DL_${subfolderNameClean}_${permissionName}"
+            
+                    # DL-Gruppe erstellen, wenn nicht vorhanden
+                    $dlGroup = Get-ADGroup -Filter {Name -eq $dlGroupName}
+                    if (-not $dlGroup) {
+                        try {
+                            New-ADGroup -Name $dlGroupName -GroupScope DomainLocal -Path $ouPath
+                            $newDLs += $dlGroupName  # Hinzufügen des DL-Namens zur Liste
+                            # Erfolgsnachricht (grün)
+                        } catch {
+                            # Fehlernachricht (schwarz)
+                            Add-DebugMessage -message "Fehler bei der Erstellung der Gruppe '$dlGroupName': $_" -isPositive $false
+                        }
+                    }
+
+                    # Berechtigungen auf Ordner setzen
+                    try {
+                        $acl = Get-Acl -Path $subfolder.FullName
+                        $permission = $permissions[$permissionName]
+                        $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule (
+                            $dlGroupName, 
+                            $permission, 
+                            "ContainerInherit,ObjectInherit", 
+                            "None", 
+                            "Allow"
+                        )
+                        $acl.SetAccessRule($accessRule)
+                        Set-Acl -Path $subfolder.FullName -AclObject $acl
+                        # Füge die Berechtigungen zur Liste hinzu
+                        $newRights += "Recht '$permissionName' auf $($subfolder.FullName) für $dlGroupName gesetzt" 
+                    } catch {
+                        # Fehlernachricht (schwarz)
+                        Add-DebugMessage -message "Fehler beim Setzen der Berechtigung auf $($subfolder.FullName) für '$dlGroupName': $_" -isPositive $false
+                    }
+                }
+            }
+
+            # Zeige die neu angelegten DLs im Debug-Fenster (grün)
+            Add-DebugMessage -message "Folgende DLs wurden erfolgreich angelegt:" -isPositive $true
+            Add-DebugMessage -message ($newDLs -join [Environment]::NewLine) -isPositive $true
+
+            # Zeige die neu vergebenen Rechte im Debug-Fenster (grün)
+            Add-DebugMessage -message "Folgende Rechte wurden erfolgreich vergeben:" -isPositive $true
+            Add-DebugMessage -message ($newRights -join [Environment]::NewLine) -isPositive $true
+
+            # Trennstrich
+            $separator = '+' * 90  # Zeichen '+' wiederholen
+            Add-DebugMessage -message $separator -isSeparator $true
+
+            [System.Windows.Forms.MessageBox]::Show("Vorgang abgeschlossen.")
+        })
+
+        $form.Controls.Add($startButton)
+
+        # Funktion zum Hinzufügen von Text in die Debug-TextBox mit Farben
+        function Add-DebugMessage {
+            param (
+                [string]$message,
+                [bool]$isPositive,
+                [bool]$isSeparator = $false  # Standardwert für isSeparator auf false setzen
+            )
+
+            if ($isSeparator) {
+                # Setze die Textfarbe auf Schwarz für den Separator
+                $debugTextBox.SelectionColor = 'Black'
+            } elseif ($isPositive) {
+                # Setze die Textfarbe auf Grün für positive Nachrichten
+                $debugTextBox.SelectionColor = 'Green'
+            } else {
+                # Setze die Textfarbe auf Rot für negative Nachrichten
+                $debugTextBox.SelectionColor = 'Red'
+            }
+
+            # Füge die Nachricht zum Textfeld hinzu
+            $debugTextBox.AppendText($message + [Environment]::NewLine)
+        }
+
+        # Formular anzeigen
+        $form.ShowDialog()
+}
+
 
 # Erstellen des Formulars
 $form = New-Object Windows.Forms.Form
 $form.Text = 'Administrator Tools'
-$form.Size = New-Object Drawing.Size(300, 200)
+$form.Size = New-Object Drawing.Size(300, 250)
 
 # Erstellen des Buttons für "Create User"
 $btnCreateUser = New-Object Windows.Forms.Button
@@ -732,10 +1069,18 @@ $btnADGDL.Size = New-Object Drawing.Size(250, 40)
 $btnADGDL.Location = New-Object Drawing.Point(20, 110)
 $btnADGDL.Add_Click({ ADGDL })
 
+# Erstellen des Buttons für "SMB-RIGHTS"
+$btnSMBRIGHTS = New-Object Windows.Forms.Button
+$btnSMBRIGHTS.Text = 'SMB-RIGHTS'
+$btnSMBRIGHTS.Size = New-Object Drawing.Size(250, 40)
+$btnSMBRIGHTS.Location = New-Object Drawing.Point(20, 160)
+$btnSMBRIGHTS.Add_Click({ SMB-RIGHTS })
+
 # Hinzufügen der Buttons zum Formular
 $form.Controls.Add($btnCreateUser)
 $form.Controls.Add($btnCreateGroups)
 $form.Controls.Add($btnADGDL)
+$form.Controls.Add($btnSMBRIGHTS)
 
 # Anzeigen des Formulars
 $form.ShowDialog()
